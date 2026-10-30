@@ -136,11 +136,17 @@ class CMDPipeline:
         self.schedule = FlowMatchSchedule()
 
     @classmethod
-    def load(cls, key: str, device: str = "metal", dtype=lucid.bfloat16, vae_dtype=None) -> "CMDPipeline":
+    def load(cls, key: str, device: str = "metal", dtype=lucid.bfloat16, vae_dtype=lucid.float32) -> "CMDPipeline":
+        """Load DiT (``dtype``, bf16 like the reference) and VAE.
+
+        The VAE runs in fp32 (its released precision): Lucid's half-precision
+        ``conv2d`` on Metal loses accuracy over large channel reductions
+        (up to 16% relative error in bf16), unlike the reference's cuDNN.
+        """
         variant = catalog.VARIANTS[key]
         if not variant.path.exists():
             raise FileNotFoundError(f"{variant.path} is missing; run `python -m cmd_lucid.download {key}`")
-        return cls(variant, load_dit(variant, device, dtype), load_vae(device, vae_dtype or dtype), device)
+        return cls(variant, load_dit(variant, device, dtype), load_vae(device, vae_dtype), device)
 
     @property
     def dtype(self):
@@ -177,17 +183,20 @@ class CMDPipeline:
         camera: Callable[[int, int], Tensor] | None = None,
         negative_embeds: Tensor | None = None,
         settings: StreamSettings = StreamSettings(),
+        endless: bool = False,
     ) -> Iterator[Block]:
         """Generate ``num_frames`` latent frames (image frame included) block by block.
 
         ``camera(start, count)`` returns ray tokens ``(1, 1536, count, 30, 52)``
         for camera models. ``negative_embeds`` is needed by teachers (CFG).
         ``num_frames`` defaults to the checkpoint's length; longer runs keep
-        going with the same local attention window.
+        going with the same local attention window. With ``endless`` the
+        stream runs until the caller stops iterating, drawing each block's
+        noise as it starts (the reference draws a whole video's noise up front).
         """
         v = self.variant
-        total = num_frames or v.latent_frames
-        if (total - 1) % v.block:
+        total = float("inf") if endless else (num_frames or v.latent_frames)
+        if not endless and (total - 1) % v.block:
             raise ValueError(f"{v.key}: frames after the image must be a multiple of {v.block}")
         if v.camera and camera is None:
             raise ValueError(f"{v.key} needs a camera trajectory")
@@ -200,7 +209,8 @@ class CMDPipeline:
                 if negative_embeds is None:
                     raise ValueError("teachers sample with CFG and need negative_embeds")
                 ctx = lucid.cat([ctx, self.context(negative_embeds)], dim=0)
-            init_noise = noise.initial((1, LATENT_CHANNELS, total - 1, LATENT_H, LATENT_W), self.dtype)
+            if not endless:
+                init_noise = noise.initial((1, LATENT_CHANNELS, total - 1, LATENT_H, LATENT_W), self.dtype)
             # 1. commit the image frame
             first = image_latent.to(self.device).to(self.dtype)
             cond = lucid.ones((1, 1, 1, LATENT_H, LATENT_W), dtype=self.dtype, device=self.device)
@@ -213,7 +223,10 @@ class CMDPipeline:
             while start < total:
                 t0 = time.time()
                 n = v.block
-                x = init_noise[:, :, start - 1 : start - 1 + n]
+                if endless:
+                    x = noise.initial((1, LATENT_CHANNELS, n, LATENT_H, LATENT_W), self.dtype)
+                else:
+                    x = init_noise[:, :, start - 1 : start - 1 + n]
                 if v.teacher:
                     x0 = self._teacher_block(x, ctx, start, cache, camera, settings)
                 else:

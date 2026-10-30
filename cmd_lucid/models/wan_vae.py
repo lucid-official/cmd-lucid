@@ -48,6 +48,10 @@ class StreamState:
 
     hist: dict[int, Tensor] = field(default_factory=dict)
     first: bool = True  # the next call carries the first chunk
+    # Evaluate after every causal convolution. Lazily, one 480x832 residual
+    # block keeps all its multi-GB intermediates alive at once and spills to
+    # swap; evaluating as it goes frees each before the next is allocated.
+    sync: bool = True
 
 
 class CausalConv3d(nn.Conv3d):
@@ -61,6 +65,12 @@ class CausalConv3d(nn.Conv3d):
         self.slot = -1
 
     def stream(self, x: Tensor, state: StreamState | None) -> Tensor:
+        out = self._stream(x, state)
+        if state is not None and state.sync:
+            lucid.eval(out)
+        return out
+
+    def _stream(self, x: Tensor, state: StreamState | None) -> Tensor:
         if self.time_pad == 0:
             return self(x)
         hist = None if state is None else state.hist.get(self.slot)
@@ -155,6 +165,11 @@ class Resample(nn.Module):
     def stream(self, x: Tensor, state: StreamState | None) -> Tensor:
         b, c, t, h, w = x.shape
         first = state is None or state.first
+        if self.mode == "upsample3d" and first and state is not None:
+            # Skipped on the first frame; its history starts as zeros at the next one.
+            state.hist[self.time_conv.slot] = lucid.zeros(
+                (b, c, self.time_conv.time_pad, h, w), dtype=x.dtype, device=x.device.type
+            )
         if self.mode == "upsample3d" and not first:
             x = self.time_conv.stream(x, state)
             x = x.reshape(b, 2, c, t, h, w).permute(0, 2, 3, 1, 4, 5).reshape(b, c, t * 2, h, w)

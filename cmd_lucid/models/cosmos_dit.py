@@ -255,8 +255,10 @@ class StreamingAttention:
         if history is not None:
             hk, hv = history
             if hk.shape[0] != k.shape[0]:
-                hk = hk.expand(k.shape[0], *hk.shape[1:])
-                hv = hv.expand(v.shape[0], *hv.shape[1:])
+                # A CFG batch [cond | uncond] reads the cache the conditional pass wrote.
+                reps = k.shape[0] // hk.shape[0]
+                hk = hk.repeat(reps, 1, 1, 1)
+                hv = hv.repeat(reps, 1, 1, 1)
             k = lucid.cat([hk, k], dim=2)
             v = lucid.cat([hv, v], dim=2)
         return F.scaled_dot_product_attention(q, k, v)
