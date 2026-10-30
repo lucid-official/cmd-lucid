@@ -54,7 +54,8 @@ class Session:
     speed: float
     turn: float
     events: "queue.Queue[dict]" = field(default_factory=queue.Queue)
-    keys: str = ""
+    keys: str = ""  # held right now
+    latched: set = field(default_factory=set)  # pressed since the last frame took its keys
     stop: bool = False
     video: Path | None = None
     poses: list = field(default_factory=list)
@@ -124,10 +125,16 @@ class Engine:
         controller = CameraController() if variant.camera else None
         tokens_cache: dict[int, lucid.Tensor] = {}
 
+        applied: list[str] = []
+
         def camera(start: int, n: int) -> lucid.Tensor:
             if start not in tokens_cache:
                 while len(controller.poses) < start + n:
-                    controller.advance(CameraAction.from_keys(s.keys, s.speed, s.turn))
+                    # Held keys plus anything tapped since the previous frame started.
+                    keys = "".join(sorted(set(s.keys) | s.latched))
+                    s.latched.clear()
+                    applied.append(keys)
+                    controller.advance(CameraAction.from_keys(keys, s.speed, s.turn))
                     p = controller.poses[-1]
                     s.poses.append([p[0][3], p[1][3], p[2][3], p[0][2], p[2][2]])
                 tokens_cache.clear()
@@ -150,8 +157,10 @@ class Engine:
                 rgb = to_uint8_frames(pixels)
                 writer.write(rgb)
                 jpegs = [base64.b64encode(encode_jpeg(f, 832, 480)).decode() for f in rgb]
+                n_lat = block.latents.shape[2]
                 s.emit("frames", start=index, images=jpegs, latent=block.start, seconds=round(block.seconds, 2),
-                       poses=s.poses[-block.latents.shape[2]:] if controller else [])
+                       poses=s.poses[-n_lat:] if controller else [],
+                       applied=applied[-n_lat:] if controller and block.start > 0 else [])
                 index += len(rgb)
                 if s.stop:
                     break
@@ -250,7 +259,8 @@ class Handler(BaseHTTPRequestHandler):
         if session is None:
             return self._json({"error": "unknown session"}, 404)
         if url.path == "/api/keys":
-            session.keys = str(body.get("keys", ""))[:16]
+            session.keys = "".join(k for k in str(body.get("keys", "")) if k in "wasdqeijkl")
+            session.latched.update(session.keys)
             return self._json({"ok": True})
         if url.path == "/api/stop":
             session.stop = True

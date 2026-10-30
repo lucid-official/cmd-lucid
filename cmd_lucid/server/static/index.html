@@ -135,7 +135,8 @@
             <label>step <input type="range" id="speed" min="0.04" max="0.4" step="0.02" value="0.16"> <span id="speed-v">0.16</span></label>
             <label>turn° <input type="range" id="turn" min="0.5" max="8" step="0.5" value="3"> <span id="turn-v">3</span></label>
           </div>
-          <p class="hint">Hold keys while it generates. Each latent frame (4 video frames) takes the keys held when it starts — every frame for chunk-1 models, every block of four for chunk-4. Q/E rise and sink. Settings apply to the next run.</p>
+          <div class="status" id="applied"></div>
+          <p class="hint">Hold or tap keys while it generates (a tap counts for the next frame). Each latent frame (4 video frames) takes the keys held when it starts — every frame for chunk-1 models, every block of four for chunk-4. Q/E rise and sink. Settings apply to the next run.</p>
         </div>
         <div>
           <div class="pad-label">camera path (top view)</div>
@@ -220,6 +221,8 @@ async function start() {
   $("dl").textContent = ""; $("s-frames").textContent = "0"; $("s-time").textContent = "0.00s";
   $("go").disabled = true; $("stop").disabled = false; $("overlay").textContent = "starting…";
   state.live = true; badge();
+  if (document.activeElement) document.activeElement.blur();  // keys go to the page, not the prompt box
+  $("applied").textContent = "";
   const es = new EventSource(`/api/events?session=${res.session}`);
   state.es = es;
   es.onmessage = (m) => onEvent(JSON.parse(m.data));
@@ -242,6 +245,10 @@ function onEvent(ev) {
     $("s-latent").textContent = ev.latent;
     if (ev.seconds) $("s-block").textContent = ev.seconds.toFixed(1);
     for (const p of ev.poses) state.poses.push(p);
+    if (ev.applied && ev.applied.length) {
+      const txt = ev.applied.map((keys) => (keys ? [...keys].map((c) => LABEL[c]).join("+") : "·")).join("  ");
+      $("applied").textContent = `latent ${ev.latent} used: ${txt}`;
+    }
     drawMap();
     $("overlay").textContent = "";
     if (!state.playing) play(true);
@@ -277,7 +284,10 @@ function play(live) {
 $("replay").onclick = () => { if (!state.frames.length) return; state.cursor = 0; if (!state.playing) play(false); };
 
 // ---- camera keys ----------------------------------------------------------
-const KEYMAP = { w: "w", a: "a", s: "s", d: "d", q: "q", e: "e", ArrowUp: "i", ArrowDown: "k", ArrowLeft: "j", ArrowRight: "l" };
+// Physical keys (e.code), so W/A/S/D work in any input language (e.g. 한글 mode reports e.key = "ㅈ").
+const KEYMAP = { KeyW: "w", KeyA: "a", KeyS: "s", KeyD: "d", KeyQ: "q", KeyE: "e",
+                 ArrowUp: "i", ArrowDown: "k", ArrowLeft: "j", ArrowRight: "l" };
+const LABEL = { w: "W", a: "A", s: "S", d: "D", q: "Q", e: "E", i: "↑", k: "↓", j: "←", l: "→" };
 function sendKeys() {
   document.querySelectorAll(".key[data-k]").forEach((k) => k.classList.toggle("on", state.keys.has(k.dataset.k)));
   if (!state.session) return;
@@ -285,12 +295,12 @@ function sendKeys() {
 }
 function typing(e) { return ["TEXTAREA", "INPUT", "SELECT"].includes(e.target.tagName); }
 window.addEventListener("keydown", (e) => {
-  const k = KEYMAP[e.key] || KEYMAP[e.key.toLowerCase()];
+  const k = KEYMAP[e.code];
   if (!k || typing(e) || model() === undefined || !model().camera) return;
   e.preventDefault(); if (!state.keys.has(k)) { state.keys.add(k); sendKeys(); }
 });
 window.addEventListener("keyup", (e) => {
-  const k = KEYMAP[e.key] || KEYMAP[e.key.toLowerCase()];
+  const k = KEYMAP[e.code];
   if (k && state.keys.delete(k)) sendKeys();
 });
 window.addEventListener("blur", () => { state.keys.clear(); sendKeys(); });
