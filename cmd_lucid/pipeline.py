@@ -26,7 +26,12 @@ import lucid
 
 from cmd_lucid import catalog
 from cmd_lucid.catalog import Variant
-from cmd_lucid.models.cosmos_dit import CosmosDiT, DiTConfig, FrameKVCache, StreamingAttention
+from cmd_lucid.models.cosmos_dit import (
+    CosmosDiT,
+    DiTConfig,
+    FrameKVCache,
+    StreamingAttention,
+)
 from cmd_lucid.models.wan_vae import WanVAE
 from cmd_lucid.scheduler import FlowMatchSchedule, FlowUniPC
 
@@ -43,7 +48,9 @@ NEGATIVE_PROMPT = (
 )
 
 
-def build_on(device: str, dtype, factory: Callable[[], lucid.nn.Module]) -> lucid.nn.Module:
+def build_on(
+    device: str, dtype, factory: Callable[[], lucid.nn.Module]
+) -> lucid.nn.Module:
     """Construct a module directly on ``device``/``dtype``; its random init is never evaluated."""
     prev = lucid.get_default_device(), lucid.get_default_dtype()
     lucid.set_default_device(device)
@@ -55,7 +62,9 @@ def build_on(device: str, dtype, factory: Callable[[], lucid.nn.Module]) -> luci
         lucid.set_default_dtype(prev[1])
 
 
-def load_dit(variant: Variant, device: str = "metal", dtype=lucid.bfloat16) -> CosmosDiT:
+def load_dit(
+    variant: Variant, device: str = "metal", dtype=lucid.bfloat16
+) -> CosmosDiT:
     cfg = DiTConfig(camera_dim=6 * 16 * 16 if variant.camera else None)
     model = build_on(device, dtype, lambda: CosmosDiT(cfg))
     weights = lucid.load_safetensors(str(variant.path), device=device)
@@ -64,10 +73,14 @@ def load_dit(variant: Variant, device: str = "metal", dtype=lucid.bfloat16) -> C
     return model.eval()
 
 
-def load_vae(device: str = "metal", dtype=lucid.bfloat16, path: Path | None = None) -> WanVAE:
+def load_vae(
+    device: str = "metal", dtype=lucid.bfloat16, path: Path | None = None
+) -> WanVAE:
     model = build_on(device, dtype, WanVAE)
     weights = lucid.load_safetensors(str(path or catalog.vae_path()), device=device)
-    model.load_state_dict({k: v.to(dtype) for k, v in weights.items()}, strict=True, assign=True)
+    model.load_state_dict(
+        {k: v.to(dtype) for k, v in weights.items()}, strict=True, assign=True
+    )
     return model.eval()
 
 
@@ -88,7 +101,9 @@ class NoiseSource:
 
     def like(self, x: Tensor) -> Tensor:
         """``torch.randn_like(x)``: same shape and dtype."""
-        return lucid.randn(*x.shape, generator=self.generator).to(self.device).to(x.dtype)
+        return (
+            lucid.randn(*x.shape, generator=self.generator).to(self.device).to(x.dtype)
+        )
 
 
 class RecordedNoise(NoiseSource):
@@ -128,7 +143,9 @@ class StreamSettings:
 class CMDPipeline:
     """A loaded CMD model (DiT + VAE) with the streaming causal sampler."""
 
-    def __init__(self, variant: Variant, dit: CosmosDiT, vae: WanVAE, device: str = "metal") -> None:
+    def __init__(
+        self, variant: Variant, dit: CosmosDiT, vae: WanVAE, device: str = "metal"
+    ) -> None:
         self.variant = variant
         self.dit = dit
         self.vae = vae
@@ -136,7 +153,13 @@ class CMDPipeline:
         self.schedule = FlowMatchSchedule()
 
     @classmethod
-    def load(cls, key: str, device: str = "metal", dtype=lucid.bfloat16, vae_dtype=lucid.float32) -> "CMDPipeline":
+    def load(
+        cls,
+        key: str,
+        device: str = "metal",
+        dtype=lucid.bfloat16,
+        vae_dtype=lucid.float32,
+    ) -> "CMDPipeline":
         """Load DiT (``dtype``, bf16 like the reference) and VAE.
 
         The VAE runs in fp32 (its released precision): Lucid's half-precision
@@ -145,8 +168,15 @@ class CMDPipeline:
         """
         variant = catalog.VARIANTS[key]
         if not variant.path.exists():
-            raise FileNotFoundError(f"{variant.path} is missing; run `python -m cmd_lucid.download {key}`")
-        return cls(variant, load_dit(variant, device, dtype), load_vae(device, vae_dtype), device)
+            raise FileNotFoundError(
+                f"{variant.path} is missing; run `python -m cmd_lucid.download {key}`"
+            )
+        return cls(
+            variant,
+            load_dit(variant, device, dtype),
+            load_vae(device, vae_dtype),
+            device,
+        )
 
     @property
     def dtype(self):
@@ -168,8 +198,18 @@ class CMDPipeline:
 
     def _flow(self, x, t, ctx, start, store, cache, camera, cond=None) -> Tensor:
         n = x.shape[2]
-        mask = cond if cond is not None else lucid.zeros((x.shape[0], 1, n, LATENT_H, LATENT_W), dtype=self.dtype, device=self.device)
-        steps = lucid.full((x.shape[0], n), float(t), dtype=lucid.float32, device=self.device)
+        mask = (
+            cond
+            if cond is not None
+            else lucid.zeros(
+                (x.shape[0], 1, n, LATENT_H, LATENT_W),
+                dtype=self.dtype,
+                device=self.device,
+            )
+        )
+        steps = lucid.full(
+            (x.shape[0], n), float(t), dtype=lucid.float32, device=self.device
+        )
         cam = None if camera is None else camera(start, n)
         attention = StreamingAttention(cache, start, store, self.variant.block)
         return self.dit.forward_stream(x, steps, ctx, mask, attention, camera=cam)
@@ -197,7 +237,9 @@ class CMDPipeline:
         v = self.variant
         total = float("inf") if endless else (num_frames or v.latent_frames)
         if not endless and (total - 1) % v.block:
-            raise ValueError(f"{v.key}: frames after the image must be a multiple of {v.block}")
+            raise ValueError(
+                f"{v.key}: frames after the image must be a multiple of {v.block}"
+            )
         if v.camera and camera is None:
             raise ValueError(f"{v.key} needs a camera trajectory")
         noise = noise or NoiseSource(device=self.device)
@@ -207,13 +249,19 @@ class CMDPipeline:
             ctx = self.context(prompt_embeds)
             if v.teacher:
                 if negative_embeds is None:
-                    raise ValueError("teachers sample with CFG and need negative_embeds")
+                    raise ValueError(
+                        "teachers sample with CFG and need negative_embeds"
+                    )
                 ctx = lucid.cat([ctx, self.context(negative_embeds)], dim=0)
             if not endless:
-                init_noise = noise.initial((1, LATENT_CHANNELS, total - 1, LATENT_H, LATENT_W), self.dtype)
+                init_noise = noise.initial(
+                    (1, LATENT_CHANNELS, total - 1, LATENT_H, LATENT_W), self.dtype
+                )
             # 1. commit the image frame
             first = image_latent.to(self.device).to(self.dtype)
-            cond = lucid.ones((1, 1, 1, LATENT_H, LATENT_W), dtype=self.dtype, device=self.device)
+            cond = lucid.ones(
+                (1, 1, 1, LATENT_H, LATENT_W), dtype=self.dtype, device=self.device
+            )
             self._flow(first, 0, ctx[:1], 0, True, cache, camera, cond=cond)
             lucid.eval(*[k for layer in cache.frames for (k, _) in layer.values()])
             yield Block(0, first, 0.0)
@@ -224,7 +272,9 @@ class CMDPipeline:
                 t0 = time.time()
                 n = v.block
                 if endless:
-                    x = noise.initial((1, LATENT_CHANNELS, n, LATENT_H, LATENT_W), self.dtype)
+                    x = noise.initial(
+                        (1, LATENT_CHANNELS, n, LATENT_H, LATENT_W), self.dtype
+                    )
                 else:
                     x = init_noise[:, :, start - 1 : start - 1 + n]
                 if v.teacher:
@@ -245,7 +295,9 @@ class CMDPipeline:
                 yield Block(start, out, time.time() - t0)
                 start += n
 
-    def _teacher_block(self, x, ctx, start, cache, camera, settings: StreamSettings) -> Tensor:
+    def _teacher_block(
+        self, x, ctx, start, cache, camera, settings: StreamSettings
+    ) -> Tensor:
         """The UniPC branch of ``CausalInferencePipeline.inference`` (velocity-space CFG)."""
         solver = FlowUniPC(settings.teacher_steps, shift=settings.timestep_shift)
         for t in solver.timesteps:

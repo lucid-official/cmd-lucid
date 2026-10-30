@@ -90,7 +90,9 @@ class FrameKVCache:
             raise ValueError("local_attn must be -1 or a positive frame count")
         self.local_attn = local_attn
         self.sink = sink
-        self.frames: list[dict[int, tuple[Tensor, Tensor]]] = [{} for _ in range(num_blocks)]
+        self.frames: list[dict[int, tuple[Tensor, Tensor]]] = [
+            {} for _ in range(num_blocks)
+        ]
 
     def reset(self) -> None:
         for layer in self.frames:
@@ -108,7 +110,9 @@ class FrameKVCache:
 
     def store(self, layer: int, frame: int, k: Tensor, v: Tensor) -> None:
         cache = self.frames[layer]
-        cache[frame] = (k, v)
+        # Contiguous copies: keeping the projections' transposed views alive
+        # retains an extra (L, D) buffer per layer and frame (~180 MB/frame).
+        cache[frame] = (k.contiguous(), v.contiguous())
         if self.local_attn > 0:
             # A query starting at frame f >= `frame` reads frames >= f - local_attn + 1.
             oldest = frame - self.local_attn + 1
@@ -198,14 +202,20 @@ class MaskedAttention:
         self.sink = sink
         self.detach_frames = detach_frames
 
-    def __call__(self, layer: int, q: Tensor, k: Tensor, v: Tensor, frames: int) -> Tensor:
+    def __call__(
+        self, layer: int, q: Tensor, k: Tensor, v: Tensor, frames: int
+    ) -> Tensor:
         tokens = q.shape[2] // frames
         if self.detach_frames:
             n = self.detach_frames * tokens
             k = lucid.cat([k[:, :, :n].detach(), k[:, :, n:]], dim=2)
             v = lucid.cat([v[:, :, :n].detach(), v[:, :, n:]], dim=2)
         plan = block_causal_ranges(
-            frames, self.frames_per_block, self.independent_first_frame, self.local_attn, self.sink
+            frames,
+            self.frames_per_block,
+            self.independent_first_frame,
+            self.local_attn,
+            self.sink,
         )
         if len(plan) == 1 and plan[0][2] == [(0, frames)]:
             return F.scaled_dot_product_attention(q, k, v)
@@ -237,7 +247,9 @@ class StreamingAttention:
         self.frames_per_block = frames_per_block
         self.independent_first_frame = independent_first_frame
 
-    def __call__(self, layer: int, q: Tensor, k: Tensor, v: Tensor, frames: int) -> Tensor:
+    def __call__(
+        self, layer: int, q: Tensor, k: Tensor, v: Tensor, frames: int
+    ) -> Tensor:
         tokens = k.shape[2] // frames
         if self.store and frames > 1:
             # Reference quirk kept on purpose: a multi-frame store pass writes
@@ -246,7 +258,10 @@ class StreamingAttention:
                 sl = slice(f * tokens, (f + 1) * tokens)
                 self.cache.store(layer, self.start + f, k[:, :, sl], v[:, :, sl])
             within = MaskedAttention(
-                self.frames_per_block, self.independent_first_frame, self.cache.local_attn, self.cache.sink
+                self.frames_per_block,
+                self.independent_first_frame,
+                self.cache.local_attn,
+                self.cache.sink,
             )
             return within(layer, q, k, v, frames)
         if self.store:
@@ -285,7 +300,9 @@ class Timesteps(nn.Module):
     def forward(self, timesteps: Tensor) -> Tensor:
         b, t = timesteps.shape
         half = self.num_channels // 2
-        exponent = -math.log(10000) * lucid.arange(half, dtype=lucid.float32, device=timesteps.device.type)
+        exponent = -math.log(10000) * lucid.arange(
+            half, dtype=lucid.float32, device=timesteps.device.type
+        )
         freqs = lucid.exp(exponent / half)
         emb = timesteps.reshape(-1, 1).float() * freqs.reshape(1, -1)
         emb = lucid.cat([lucid.cos(emb), lucid.sin(emb)], dim=-1)
@@ -322,13 +339,17 @@ class PatchEmbed(nn.Module):
         super().__init__()
         self.p = cfg.patch_spatial
         self.pt = cfg.patch_temporal
-        self.proj = nn.Sequential(nn.Identity(), nn.Linear(cfg.patch_in, cfg.model_channels, bias=False))
+        self.proj = nn.Sequential(
+            nn.Identity(), nn.Linear(cfg.patch_in, cfg.model_channels, bias=False)
+        )
 
     def forward(self, x: Tensor) -> Tensor:
         b, c, t, h, w = x.shape
         p, pt = self.p, self.pt
         x = x.reshape(b, c, t // pt, pt, h // p, p, w // p, p)
-        x = x.permute(0, 2, 4, 6, 1, 3, 5, 7).reshape(b, t // pt, h // p, w // p, c * pt * p * p)
+        x = x.permute(0, 2, 4, 6, 1, 3, 5, 7).reshape(
+            b, t // pt, h // p, w // p, c * pt * p * p
+        )
         return self.proj[1](x)
 
 
@@ -345,13 +366,19 @@ class Rope3D(nn.Module):
         dim = cfg.head_dim
         self.dim_h = dim // 6 * 2
         self.dim_t = dim - 2 * self.dim_h
-        length = max(cfg.max_img_h // cfg.patch_spatial, cfg.max_img_w // cfg.patch_spatial, cfg.max_frames)
+        length = max(
+            cfg.max_img_h // cfg.patch_spatial,
+            cfg.max_img_w // cfg.patch_spatial,
+            cfg.max_frames,
+        )
         self.register_buffer("seq", lucid.arange(length, dtype=lucid.float32))
         self.register_buffer(
-            "dim_spatial_range", lucid.arange(0, self.dim_h, 2, dtype=lucid.float32) / self.dim_h
+            "dim_spatial_range",
+            lucid.arange(0, self.dim_h, 2, dtype=lucid.float32) / self.dim_h,
         )
         self.register_buffer(
-            "dim_temporal_range", lucid.arange(0, self.dim_t, 2, dtype=lucid.float32) / self.dim_t
+            "dim_temporal_range",
+            lucid.arange(0, self.dim_t, 2, dtype=lucid.float32) / self.dim_t,
         )
         self.h_ntk = cfg.rope_h_extrapolation_ratio ** (self.dim_h / (self.dim_h - 2))
         self.w_ntk = cfg.rope_w_extrapolation_ratio ** (self.dim_h / (self.dim_h - 2))
@@ -359,10 +386,17 @@ class Rope3D(nn.Module):
         self._tables: dict[tuple, tuple[Tensor, Tensor]] = {}
 
     def _freqs(self, theta: float, dim_range: Tensor) -> Tensor:
-        base = lucid.full(tuple(dim_range.shape), theta, dtype=lucid.float32, device=dim_range.device.type)
+        base = lucid.full(
+            tuple(dim_range.shape),
+            theta,
+            dtype=lucid.float32,
+            device=dim_range.device.type,
+        )
         return 1.0 / lucid.pow(base, dim_range.float())
 
-    def tables(self, t_start: int, t_count: int, h: int, w: int) -> tuple[Tensor, Tensor]:
+    def tables(
+        self, t_start: int, t_count: int, h: int, w: int
+    ) -> tuple[Tensor, Tensor]:
         """cos/sin tables ``(t_count*h*w, head_dim)`` for frames ``t_start..``."""
         key = (t_start, t_count, h, w, str(self.dim_spatial_range.device))
         hit = self._tables.get(key)
@@ -375,9 +409,21 @@ class Rope3D(nn.Module):
         pt = lucid.arange(t_start, t_start + t_count, dtype=lucid.float32, device=dev)
         ph = lucid.arange(h, dtype=lucid.float32, device=dev)
         pw = lucid.arange(w, dtype=lucid.float32, device=dev)
-        et = (pt.reshape(-1, 1) * ft.reshape(1, -1)).reshape(t_count, 1, 1, -1).expand(t_count, h, w, ft.shape[0])
-        eh = (ph.reshape(-1, 1) * fh.reshape(1, -1)).reshape(1, h, 1, -1).expand(t_count, h, w, fh.shape[0])
-        ew = (pw.reshape(-1, 1) * fw.reshape(1, -1)).reshape(1, 1, w, -1).expand(t_count, h, w, fw.shape[0])
+        et = (
+            (pt.reshape(-1, 1) * ft.reshape(1, -1))
+            .reshape(t_count, 1, 1, -1)
+            .expand(t_count, h, w, ft.shape[0])
+        )
+        eh = (
+            (ph.reshape(-1, 1) * fh.reshape(1, -1))
+            .reshape(1, h, 1, -1)
+            .expand(t_count, h, w, fh.shape[0])
+        )
+        ew = (
+            (pw.reshape(-1, 1) * fw.reshape(1, -1))
+            .reshape(1, 1, w, -1)
+            .expand(t_count, h, w, fw.shape[0])
+        )
         half = lucid.cat([et, eh, ew], dim=-1).reshape(t_count * h * w, -1)
         angles = lucid.cat([half, half], dim=-1)
         out = (lucid.cos(angles), lucid.sin(angles))
@@ -401,7 +447,13 @@ class FeedForward(nn.Module):
 class Attention(nn.Module):
     """Multi-head attention with RMS-normalised q/k (``q_norm``/``k_norm``)."""
 
-    def __init__(self, dim: int, context_dim: int | None, heads: int, camera_dim: int | None = None) -> None:
+    def __init__(
+        self,
+        dim: int,
+        context_dim: int | None,
+        heads: int,
+        camera_dim: int | None = None,
+    ) -> None:
         super().__init__()
         self.heads = heads
         self.head_dim = dim // heads
@@ -414,13 +466,20 @@ class Attention(nn.Module):
         self.v_proj = nn.Linear(ctx, dim, bias=False)
         self.output_proj = nn.Linear(dim, dim, bias=False)
         # Camera models keep the ray-token projection under `self_attn`.
-        self.cam_encoder = nn.Linear(camera_dim, dim, bias=False) if camera_dim else None
+        self.cam_encoder = (
+            nn.Linear(camera_dim, dim, bias=False) if camera_dim else None
+        )
 
     def _heads(self, x: Tensor) -> Tensor:
         b, n, _ = x.shape
         return x.reshape(b, n, self.heads, self.head_dim)
 
-    def qkv(self, x: Tensor, context: Tensor | None = None, rope: tuple[Tensor, Tensor] | None = None):
+    def qkv(
+        self,
+        x: Tensor,
+        context: Tensor | None = None,
+        rope: tuple[Tensor, Tensor] | None = None,
+    ):
         """q, k, v as ``(B, heads, L, head_dim)``; RoPE in fp32 for self-attention."""
         context = x if context is None else context
         q = self.q_norm(self._heads(self.q_proj(x))).swapaxes(1, 2)
@@ -434,11 +493,17 @@ class Attention(nn.Module):
 
     def out(self, attended: Tensor) -> Tensor:
         b, _, n, _ = attended.shape
-        return self.output_proj(attended.swapaxes(1, 2).reshape(b, n, self.heads * self.head_dim))
+        return self.output_proj(
+            attended.swapaxes(1, 2).reshape(b, n, self.heads * self.head_dim)
+        )
 
 
 def _modulation(dim: int, lora: int, chunks: int) -> nn.Sequential:
-    return nn.Sequential(nn.SiLU(), nn.Linear(dim, lora, bias=False), nn.Linear(lora, chunks * dim, bias=False))
+    return nn.Sequential(
+        nn.SiLU(),
+        nn.Linear(dim, lora, bias=False),
+        nn.Linear(lora, chunks * dim, bias=False),
+    )
 
 
 def _modulate_fp32(seq: nn.Sequential, emb: Tensor, lora: Tensor) -> Tensor:
@@ -513,7 +578,9 @@ class FinalLayer(nn.Module):
         d = cfg.model_channels
         self.hidden = d
         self.layer_norm = nn.LayerNorm(d, eps=1e-6, elementwise_affine=False)
-        self.linear = nn.Linear(d, cfg.patch_spatial**2 * cfg.patch_temporal * cfg.out_channels, bias=False)
+        self.linear = nn.Linear(
+            d, cfg.patch_spatial**2 * cfg.patch_temporal * cfg.out_channels, bias=False
+        )
         self.adaln_modulation = _modulation(d, cfg.adaln_lora_dim, 2)
 
     def forward(self, x: Tensor, emb: Tensor, lora: Tensor) -> Tensor:
@@ -538,7 +605,10 @@ class CosmosDiT(nn.Module):
         self.blocks = nn.ModuleList([Block(cfg) for _ in range(cfg.num_blocks)])
         self.final_layer = FinalLayer(cfg)
         self.crossattn_proj = nn.Sequential(
-            nn.Linear(cfg.crossattn_proj_in_channels, cfg.crossattn_emb_channels, bias=True), nn.GELU()
+            nn.Linear(
+                cfg.crossattn_proj_in_channels, cfg.crossattn_emb_channels, bias=True
+            ),
+            nn.GELU(),
         )
 
     @property
@@ -570,7 +640,11 @@ class CosmosDiT(nn.Module):
 
     def _unpatchify(self, x: Tensor) -> Tensor:
         b, t, h, w, _ = x.shape
-        p, pt, c = self.cfg.patch_spatial, self.cfg.patch_temporal, self.cfg.out_channels
+        p, pt, c = (
+            self.cfg.patch_spatial,
+            self.cfg.patch_temporal,
+            self.cfg.out_channels,
+        )
         x = x.reshape(b, t, h, w, p, p, pt, c).permute(0, 7, 1, 6, 2, 4, 3, 5)
         return x.reshape(b, c, t * pt, h * p, w * p)
 
@@ -612,7 +686,9 @@ class CosmosDiT(nn.Module):
         _, t, h, w, _ = tokens.shape
         emb, lora = self._time(timesteps, fp32=False)
         rope = self.pos_embedder.tables(attention.start, t, h, w)
-        out = self._run(tokens, emb, lora, context, rope, attention, self._camera_tokens(camera))
+        out = self._run(
+            tokens, emb, lora, context, rope, attention, self._camera_tokens(camera)
+        )
         return self._unpatchify(self.final_layer(out, emb, lora))
 
     def forward_full(
@@ -629,7 +705,9 @@ class CosmosDiT(nn.Module):
         _, t, h, w, _ = tokens.shape
         emb, lora = self._time(timesteps, fp32=True)
         rope = self.pos_embedder.tables(0, t, h, w)
-        out = self._run(tokens, emb, lora, context, rope, attention, self._camera_tokens(camera))
+        out = self._run(
+            tokens, emb, lora, context, rope, attention, self._camera_tokens(camera)
+        )
         return self._unpatchify(self.final_layer(out, emb, lora))
 
     def forward_packed(
@@ -668,8 +746,11 @@ class CosmosDiT(nn.Module):
         rope = self.pos_embedder.tables(0, total, h, w)
         cam = self._camera_tokens(camera)
         attention = MaskedAttention(
-            attention.frames_per_block, attention.independent_first_frame,
-            attention.local_attn, attention.sink, detach_frames=n_ctx,
+            attention.frames_per_block,
+            attention.independent_first_frame,
+            attention.local_attn,
+            attention.sink,
+            detach_frames=n_ctx,
         )
         for i, block in enumerate(self.blocks):
             tokens = block(tokens, emb, lora, context, rope, attention, i, cam)
@@ -678,6 +759,7 @@ class CosmosDiT(nn.Module):
         suffix = self._unpatchify(out)
         prefix = lucid.zeros(
             (b, suffix.shape[1], noisy_start, suffix.shape[3], suffix.shape[4]),
-            dtype=suffix.dtype, device=suffix.device.type,
+            dtype=suffix.dtype,
+            device=suffix.device.type,
         )
         return lucid.cat([prefix, suffix], dim=2)

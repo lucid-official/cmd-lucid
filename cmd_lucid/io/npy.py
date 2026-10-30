@@ -9,7 +9,12 @@ from pathlib import Path
 
 import lucid
 
-_DTYPES = {"<f4": ("f", lucid.float32), "<f8": ("d", lucid.float64), "<i4": ("i", lucid.int32), "<i8": ("q", lucid.int64)}
+_DTYPES = {
+    "<f4": ("f", lucid.float32),
+    "<f8": ("d", lucid.float64),
+    "<i4": ("i", lucid.int32),
+    "<i8": ("q", lucid.int64),
+}
 
 
 def parse_npy(raw: bytes) -> lucid.Tensor | None:

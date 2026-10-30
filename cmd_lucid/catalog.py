@@ -19,7 +19,9 @@ VAE_REPO = "Wan-AI/Wan2.1-T2V-1.3B"
 VAE_FILE = "Wan2.1_VAE.pth"
 
 ROOT = Path(__file__).resolve().parent.parent
-CHECKPOINTS = Path(__import__("os").environ.get("CMD_LUCID_CHECKPOINTS", ROOT / "checkpoints"))
+CHECKPOINTS = Path(
+    __import__("os").environ.get("CMD_LUCID_CHECKPOINTS", ROOT / "checkpoints")
+)
 
 
 @dataclass(frozen=True)
@@ -70,19 +72,55 @@ VARIANTS: dict[str, Variant] = {
         Variant("chunk4-short", "chunk4_short_t21_l16.safetensors", 21, 4, 16),
         Variant("chunk1-long", "chunk1_long_t126_l21.safetensors", 126, 1, 21),
         Variant("chunk4-long", "chunk4_long_t121_l16.safetensors", 121, 4, 16),
-        Variant("chunk1-camera", "chunk1_camera_control_t32_l21.safetensors", 32, 1, 21, camera=True),
-        Variant("chunk4-camera", "chunk4_camera_control_t29_l24.safetensors", 29, 4, 24, camera=True),
-        Variant("chunk1-teacher", "chunk1_teacher_t24_l21.safetensors", 24, 1, 21, teacher=True),
-        Variant("chunk4-teacher", "chunk4_teacher_t21_l16.safetensors", 21, 4, 16, teacher=True),
+        Variant(
+            "chunk1-camera",
+            "chunk1_camera_control_t32_l21.safetensors",
+            32,
+            1,
+            21,
+            camera=True,
+        ),
+        Variant(
+            "chunk4-camera",
+            "chunk4_camera_control_t29_l24.safetensors",
+            29,
+            4,
+            24,
+            camera=True,
+        ),
+        Variant(
+            "chunk1-teacher",
+            "chunk1_teacher_t24_l21.safetensors",
+            24,
+            1,
+            21,
+            teacher=True,
+        ),
+        Variant(
+            "chunk4-teacher",
+            "chunk4_teacher_t21_l16.safetensors",
+            21,
+            4,
+            16,
+            teacher=True,
+        ),
         Variant(
             "chunk1-camera-teacher",
             "chunk1_teacher_t32_l21_camera.safetensors",
-            32, 1, 21, camera=True, teacher=True,
+            32,
+            1,
+            21,
+            camera=True,
+            teacher=True,
         ),
         Variant(
             "chunk4-camera-teacher",
             "chunk4_teacher_t29_l24_camera.safetensors",
-            29, 4, 24, camera=True, teacher=True,
+            29,
+            4,
+            24,
+            camera=True,
+            teacher=True,
         ),
     ]
 }

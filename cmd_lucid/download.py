@@ -16,12 +16,24 @@ import shutil
 
 from cmd_lucid import catalog, hub
 
-_TEXT_FILES = ["config.json", "tokenizer.json", "tokenizer_config.json", "chat_template.json"]
+_TEXT_FILES = [
+    "config.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "chat_template.json",
+]
 _TEXT_SHARDS = [f"model-0000{i}-of-00004.safetensors" for i in range(1, 5)]
 _ORDER = [
-    "chunk1-camera", "chunk1-short", "chunk4-short", "chunk4-camera",
-    "chunk1-long", "chunk4-long", "chunk1-teacher", "chunk4-teacher",
-    "chunk1-camera-teacher", "chunk4-camera-teacher",
+    "chunk1-camera",
+    "chunk1-short",
+    "chunk4-short",
+    "chunk4-camera",
+    "chunk1-long",
+    "chunk4-long",
+    "chunk1-teacher",
+    "chunk4-teacher",
+    "chunk1-camera-teacher",
+    "chunk4-camera-teacher",
 ]
 _MIN_FREE_GB = 12
 
@@ -39,7 +51,9 @@ def fetch_shared() -> None:
         hub.fetch_file(catalog.TEXT_ENCODER_REPO, name, target / name)
     for shard in _TEXT_SHARDS:
         remote = hub.RemoteSafetensors(catalog.TEXT_ENCODER_REPO, shard)
-        hub.fetch_passthrough(remote, target / shard, select=lambda n: n.startswith("model."))
+        hub.fetch_passthrough(
+            remote, target / shard, select=lambda n: n.startswith("model.")
+        )
 
 
 def fetch_variant(key: str) -> None:
@@ -57,9 +71,17 @@ def fetch_variant(key: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("variants", nargs="*", help=f"default: all, in order ({', '.join(catalog.VARIANTS)})")
-    parser.add_argument("--no-shared", action="store_true", help="skip the text encoder and VAE")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "variants",
+        nargs="*",
+        help=f"default: all, in order ({', '.join(catalog.VARIANTS)})",
+    )
+    parser.add_argument(
+        "--no-shared", action="store_true", help="skip the text encoder and VAE"
+    )
     args = parser.parse_args()
     catalog.CHECKPOINTS.mkdir(parents=True, exist_ok=True)
     keys = args.variants or _ORDER

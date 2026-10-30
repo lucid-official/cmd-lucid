@@ -24,7 +24,9 @@ NEGATIVE = (
 )
 PROMPTS = [
     (ROOT / "tests/fixtures/example_prompt.txt").read_text(encoding="utf-8").strip(),
-    (ROOT / "tests/fixtures/example_camera_prompt.txt").read_text(encoding="utf-8").strip(),
+    (ROOT / "tests/fixtures/example_camera_prompt.txt")
+    .read_text(encoding="utf-8")
+    .strip(),
     NEGATIVE,
     "A corgi wearing sunglasses rides a surfboard, golden hour",
     "It's 2026; we've got 1234567 apples, 3.14159 pies & they're GONE!!!",
@@ -43,12 +45,21 @@ def main() -> None:
             {"role": "system", "content": [{"type": "text", "text": SYSTEM}]},
             {"role": "user", "content": [{"type": "text", "text": prompt}]},
         ]
-        text = tok.apply_chat_template(conversation, tokenize=False, add_generation_prompt=False, add_vision_id=False)
-        ids = tok(text, padding="max_length", truncation=True, max_length=512)["input_ids"]
+        text = tok.apply_chat_template(
+            conversation,
+            tokenize=False,
+            add_generation_prompt=False,
+            add_vision_id=False,
+        )
+        ids = tok(text, padding="max_length", truncation=True, max_length=512)[
+            "input_ids"
+        ]
         out.append({"prompt": prompt, "text": text, "ids": ids})
     path = ROOT / "tests/fixtures/tokenizer_hf.json"
     path.write_text(json.dumps(out, ensure_ascii=False, indent=1), encoding="utf-8")
-    print("wrote", path, [len(o["ids"]) for o in out], "padding side:", tok.padding_side)
+    print(
+        "wrote", path, [len(o["ids"]) for o in out], "padding side:", tok.padding_side
+    )
 
 
 if __name__ == "__main__":

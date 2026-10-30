@@ -32,7 +32,14 @@ import lucid
 
 from cmd_lucid import catalog
 from cmd_lucid.camera import CameraAction, CameraController
-from cmd_lucid.io.media import VideoWriter, encode_jpeg, image_from_bytes, image_to_model, read_image, to_uint8_frames
+from cmd_lucid.io.media import (
+    VideoWriter,
+    encode_jpeg,
+    image_from_bytes,
+    image_to_model,
+    read_image,
+    to_uint8_frames,
+)
 from cmd_lucid.pipeline import NEGATIVE_PROMPT, CMDPipeline, NoiseSource
 from cmd_lucid.text.encoder import PromptEncoder
 
@@ -55,7 +62,9 @@ class Session:
     turn: float
     events: "queue.Queue[dict]" = field(default_factory=queue.Queue)
     keys: str = ""  # held right now
-    latched: set = field(default_factory=set)  # pressed since the last frame took its keys
+    latched: set = field(
+        default_factory=set
+    )  # pressed since the last frame took its keys
     stop: bool = False
     video: Path | None = None
     poses: list = field(default_factory=list)
@@ -109,7 +118,9 @@ class Engine:
         variant = catalog.VARIANTS[s.model]
         if self.encoder is None:
             self.encoder = PromptEncoder()
-        if not self.encoder.cached(s.prompt) or (variant.teacher and not self.encoder.cached(NEGATIVE_PROMPT)):
+        if not self.encoder.cached(s.prompt) or (
+            variant.teacher and not self.encoder.cached(NEGATIVE_PROMPT)
+        ):
             s.emit("status", message="encoding the prompt with Cosmos-Reason1-7B ...")
             if self.pipe is not None:  # make room for the 14 GB text encoder
                 self.pipe = None
@@ -119,7 +130,9 @@ class Engine:
         negative = self.encoder(NEGATIVE_PROMPT) if variant.teacher else None
         s.emit("status", message=f"prompt features ready ({time.time() - t0:.1f}s)")
         pipe = self._ensure(s.model, s)
-        image = image_from_bytes(s.image) if s.image else read_image(EXAMPLES / s.example)
+        image = (
+            image_from_bytes(s.image) if s.image else read_image(EXAMPLES / s.example)
+        )
         latent = pipe.encode_image(image_to_model(image))
 
         controller = CameraController() if variant.camera else None
@@ -138,7 +151,11 @@ class Engine:
                     p = controller.poses[-1]
                     s.poses.append([p[0][3], p[1][3], p[2][3], p[0][2], p[2][2]])
                 tokens_cache.clear()
-                tokens_cache[start] = controller.tokens(start, n, variant.block).to(pipe.device).to(pipe.dtype)
+                tokens_cache[start] = (
+                    controller.tokens(start, n, variant.block)
+                    .to(pipe.device)
+                    .to(pipe.dtype)
+                )
             return tokens_cache[start]
 
         endless = s.max_frames <= 0
@@ -148,19 +165,40 @@ class Engine:
         s.video = OUTPUTS / f"{s.id}.mp4"
         writer = VideoWriter(s.video, 832, 480)
         index = 0
-        s.emit("start", model=s.model, block=variant.block, camera=variant.camera, frames=frames)
-        stream = pipe.stream(latent, embeds, frames, NoiseSource(s.seed), camera if controller else None,
-                             negative, endless=endless)
+        s.emit(
+            "start",
+            model=s.model,
+            block=variant.block,
+            camera=variant.camera,
+            frames=frames,
+        )
+        stream = pipe.stream(
+            latent,
+            embeds,
+            frames,
+            NoiseSource(s.seed),
+            camera if controller else None,
+            negative,
+            endless=endless,
+        )
         try:
             for block in stream:
                 pixels = decode(block.latents)
                 rgb = to_uint8_frames(pixels)
                 writer.write(rgb)
-                jpegs = [base64.b64encode(encode_jpeg(f, 832, 480)).decode() for f in rgb]
+                jpegs = [
+                    base64.b64encode(encode_jpeg(f, 832, 480)).decode() for f in rgb
+                ]
                 n_lat = block.latents.shape[2]
-                s.emit("frames", start=index, images=jpegs, latent=block.start, seconds=round(block.seconds, 2),
-                       poses=s.poses[-n_lat:] if controller else [],
-                       applied=applied[-n_lat:] if controller and block.start > 0 else [])
+                s.emit(
+                    "frames",
+                    start=index,
+                    images=jpegs,
+                    latent=block.start,
+                    seconds=round(block.seconds, 2),
+                    poses=s.poses[-n_lat:] if controller else [],
+                    applied=applied[-n_lat:] if controller and block.start > 0 else [],
+                )
                 index += len(rgb)
                 if s.stop:
                     break
@@ -204,7 +242,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(_info())
         if url.path.startswith("/api/example/"):
             name = Path(url.path.removeprefix("/api/example/")).name
-            ctype = "image/png" if name.endswith(".png") else "text/plain; charset=utf-8"
+            ctype = (
+                "image/png" if name.endswith(".png") else "text/plain; charset=utf-8"
+            )
             return self._file(EXAMPLES / name, ctype)
         if url.path.startswith("/api/video/"):
             return self._file(OUTPUTS / Path(url.path).name, "video/mp4")
@@ -230,7 +270,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 self.wfile.write(f"data: {json.dumps(event)}\n\n".encode())
                 self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError):
+            except BrokenPipeError, ConnectionResetError:
                 return
             if event["type"] == "end":
                 return
@@ -241,13 +281,25 @@ class Handler(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(length) or b"{}")
         if url.path == "/api/start":
             model = body.get("model", "chunk1-camera")
-            if model not in catalog.VARIANTS or not catalog.VARIANTS[model].path.exists():
+            if (
+                model not in catalog.VARIANTS
+                or not catalog.VARIANTS[model].path.exists()
+            ):
                 return self._json({"error": f"model {model} is not downloaded"}, 400)
-            image = base64.b64decode(body["image"].split(",", 1)[-1]) if body.get("image") else None
+            image = (
+                base64.b64decode(body["image"].split(",", 1)[-1])
+                if body.get("image")
+                else None
+            )
             session = Session(
-                id=uuid.uuid4().hex[:12], model=model, prompt=str(body.get("prompt", "")).strip(), image=image,
-                example=body.get("example") or "image.png", seed=int(body.get("seed", 22)),
-                max_frames=int(body.get("frames", 0)), speed=float(body.get("speed", 0.16)),
+                id=uuid.uuid4().hex[:12],
+                model=model,
+                prompt=str(body.get("prompt", "")).strip(),
+                image=image,
+                example=body.get("example") or "image.png",
+                seed=int(body.get("seed", 22)),
+                max_frames=int(body.get("frames", 0)),
+                speed=float(body.get("speed", 0.16)),
                 turn=float(body.get("turn", 3.0)),
             )
             if not session.prompt:
@@ -259,7 +311,9 @@ class Handler(BaseHTTPRequestHandler):
         if session is None:
             return self._json({"error": "unknown session"}, 404)
         if url.path == "/api/keys":
-            session.keys = "".join(k for k in str(body.get("keys", "")) if k in "wasdqeijkl")
+            session.keys = "".join(
+                k for k in str(body.get("keys", "")) if k in "wasdqeijkl"
+            )
             session.latched.update(session.keys)
             return self._json({"ok": True})
         if url.path == "/api/stop":
@@ -270,12 +324,24 @@ class Handler(BaseHTTPRequestHandler):
 
 def _info() -> dict:
     models = [
-        {"key": v.key, "camera": v.camera, "teacher": v.teacher, "block": v.block, "local_attn": v.local_attn,
-         "latent_frames": v.latent_frames, "pixel_frames": v.pixel_frames, "available": v.path.exists()}
+        {
+            "key": v.key,
+            "camera": v.camera,
+            "teacher": v.teacher,
+            "block": v.block,
+            "local_attn": v.local_attn,
+            "latent_frames": v.latent_frames,
+            "pixel_frames": v.pixel_frames,
+            "available": v.path.exists(),
+        }
         for v in catalog.VARIANTS.values()
     ]
     examples = [p.name for p in sorted(EXAMPLES.glob("*.png"))]
-    return {"models": models, "examples": examples, "device": lucid.metal.get_device_name()}
+    return {
+        "models": models,
+        "examples": examples,
+        "device": lucid.metal.get_device_name(),
+    }
 
 
 def _tailscale_ip() -> str | None:
@@ -283,14 +349,18 @@ def _tailscale_ip() -> str | None:
     if not exe:
         return None
     try:
-        out = subprocess.run([exe, "ip", "-4"], capture_output=True, text=True, timeout=5).stdout.split()
+        out = subprocess.run(
+            [exe, "ip", "-4"], capture_output=True, text=True, timeout=5
+        ).stdout.split()
         return out[0] if out else None
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError, subprocess.TimeoutExpired:
         return None
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--host", help="default: the Tailscale IPv4 address, else 127.0.0.1")
     p.add_argument("--port", type=int, default=7860)
     p.add_argument("--dtype", choices=list(_DTYPES), default="bf16")

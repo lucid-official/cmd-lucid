@@ -4,7 +4,19 @@ import ast
 from pathlib import Path
 
 PACKAGE = Path(__file__).resolve().parents[1] / "cmd_lucid"
-FORBIDDEN_TOP = {"torch", "numpy", "np", "scipy", "PIL", "cv2", "einops", "safetensors", "transformers", "diffusers", "mlx"}
+FORBIDDEN_TOP = {
+    "torch",
+    "numpy",
+    "np",
+    "scipy",
+    "PIL",
+    "cv2",
+    "einops",
+    "safetensors",
+    "transformers",
+    "diffusers",
+    "mlx",
+}
 
 
 def _imports(path: Path):

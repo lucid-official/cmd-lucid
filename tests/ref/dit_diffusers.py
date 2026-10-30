@@ -80,20 +80,35 @@ def main() -> None:
     diff_sd = model.state_dict()
 
     # Every Cosmos-named key of the Lucid model, mapped to diffusers.
-    names = ["x_embedder.proj.1.weight", "t_embedder.1.linear_1.weight", "t_embedder.1.linear_2.weight",
-             "t_embedding_norm.weight", "final_layer.linear.weight", "final_layer.adaln_modulation.1.weight",
-             "final_layer.adaln_modulation.2.weight", "crossattn_proj.0.weight", "crossattn_proj.0.bias"]
+    names = [
+        "x_embedder.proj.1.weight",
+        "t_embedder.1.linear_1.weight",
+        "t_embedder.1.linear_2.weight",
+        "t_embedding_norm.weight",
+        "final_layer.linear.weight",
+        "final_layer.adaln_modulation.1.weight",
+        "final_layer.adaln_modulation.2.weight",
+        "crossattn_proj.0.weight",
+        "crossattn_proj.0.bias",
+    ]
     for i in range(layers):
         for part in ["self_attn", "cross_attn"]:
             for w in ["q_proj", "k_proj", "v_proj", "output_proj", "q_norm", "k_norm"]:
                 names.append(f"blocks.{i}.{part}.{w}.weight")
         for m in ["self_attn", "cross_attn", "mlp"]:
-            names += [f"blocks.{i}.adaln_modulation_{m}.1.weight", f"blocks.{i}.adaln_modulation_{m}.2.weight"]
+            names += [
+                f"blocks.{i}.adaln_modulation_{m}.1.weight",
+                f"blocks.{i}.adaln_modulation_{m}.2.weight",
+            ]
         names += [f"blocks.{i}.mlp.layer1.weight", f"blocks.{i}.mlp.layer2.weight"]
     tensors = {}
     for name in names:
         tensors["w." + name] = diff_sd[to_diffusers(name)].contiguous()
-    assert len(names) == len(diff_sd), (len(names), len(diff_sd), set(diff_sd) - {to_diffusers(n) for n in names})
+    assert len(names) == len(diff_sd), (
+        len(names),
+        len(diff_sd),
+        set(diff_sd) - {to_diffusers(n) for n in names},
+    )
 
     b, t, h, w = 1, 3, 8, 12
     x = torch.randn(b, 16, t, h, w)
@@ -110,7 +125,15 @@ def main() -> None:
             padding_mask=torch.zeros(b, 1, h, w),
             return_dict=False,
         )[0]
-    tensors.update({"in.x": x, "in.cond": cond, "in.t": raw_t, "in.prompt": prompt, "out.flow": out})
+    tensors.update(
+        {
+            "in.x": x,
+            "in.cond": cond,
+            "in.t": raw_t,
+            "in.prompt": prompt,
+            "out.flow": out,
+        }
+    )
     OUT.parent.mkdir(parents=True, exist_ok=True)
     save_file({k: v.contiguous() for k, v in tensors.items()}, str(OUT))
     print("wrote", OUT, tuple(out.shape))

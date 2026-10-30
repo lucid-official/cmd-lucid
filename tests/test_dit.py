@@ -4,13 +4,21 @@ import lucid
 import pytest
 
 from cmd_lucid.models.cosmos_dit import (
-    CosmosDiT, DiTConfig, FrameKVCache, MaskedAttention, StreamingAttention,
+    CosmosDiT,
+    DiTConfig,
+    FrameKVCache,
+    MaskedAttention,
+    StreamingAttention,
 )
 from conftest import DEVICES, load_fixture, max_rel
 
 TINY = DiTConfig(
-    model_channels=128, num_blocks=2, num_heads=2, adaln_lora_dim=16,
-    crossattn_proj_in_channels=96, crossattn_emb_channels=32,
+    model_channels=128,
+    num_blocks=2,
+    num_heads=2,
+    adaln_lora_dim=16,
+    crossattn_proj_in_channels=96,
+    crossattn_emb_channels=32,
 )
 
 
@@ -21,7 +29,9 @@ def _model(fx, device, camera_dim=None):
     if camera_dim:
         lucid.manual_seed(3)
         for i in range(cfg.num_blocks):
-            weights[f"blocks.{i}.self_attn.cam_encoder.weight"] = lucid.randn(cfg.model_channels, camera_dim) * 0.02
+            weights[f"blocks.{i}.self_attn.cam_encoder.weight"] = (
+                lucid.randn(cfg.model_channels, camera_dim) * 0.02
+            )
     missing = model.load_state_dict(weights, strict=False)
     assert all(k.startswith("pos_embedder.") for k in missing.missing_keys), missing
     assert not missing.unexpected_keys
@@ -36,7 +46,9 @@ def test_bidirectional_matches_diffusers(device):
     ctx = model.project_context(fx["in.prompt"].to(device))
     frames = x.shape[2]
     with lucid.no_grad():
-        out = model.forward_full(x, t, ctx, cond, MaskedAttention(frames_per_block=frames))
+        out = model.forward_full(
+            x, t, ctx, cond, MaskedAttention(frames_per_block=frames)
+        )
     assert max_rel(out, fx["out.flow"]) < 2e-5
 
 
@@ -58,7 +70,9 @@ def test_streaming_equals_block_causal_full_sequence(device, block, local):
     t = lucid.full((1, frames), 400.0).to(device)
     ctx = model.project_context(lucid.randn(1, 5, 96).to(device))
     with lucid.no_grad():
-        full = model.forward_full(x, t, ctx, cond, MaskedAttention(block, True, local), camera=cam)
+        full = model.forward_full(
+            x, t, ctx, cond, MaskedAttention(block, True, local), camera=cam
+        )
         cache = FrameKVCache(TINY.num_blocks, local_attn=local)
         start, chunks = 0, [1] + [block] * 3
         outs = []
@@ -66,8 +80,18 @@ def test_streaming_equals_block_causal_full_sequence(device, block, local):
             sl = slice(start, start + n)
             args = (x[:, :, sl], t[:, sl], ctx, cond[:, :, sl])
             # Denoising pass (reads history), then the store pass for that chunk.
-            outs.append(model.forward_stream(*args, StreamingAttention(cache, start, False, block), camera=cam[:, :, sl]))
-            model.forward_stream(*args, StreamingAttention(cache, start, True, block), camera=cam[:, :, sl])
+            outs.append(
+                model.forward_stream(
+                    *args,
+                    StreamingAttention(cache, start, False, block),
+                    camera=cam[:, :, sl],
+                )
+            )
+            model.forward_stream(
+                *args,
+                StreamingAttention(cache, start, True, block),
+                camera=cam[:, :, sl],
+            )
             start += n
         stream = lucid.cat(outs, dim=2)
     if block == 1:
@@ -98,7 +122,9 @@ def test_packed_scoring_equals_masked_full_sequence(device):
     ctx = model.project_context(lucid.randn(1, 5, 96).to(device))
     att = MaskedAttention(1, True, 5)
     with lucid.no_grad():
-        packed = model.forward_packed(noisy, clean, t_noisy, t_clean, ctx, nmask, cmask, att, n_ctx)
+        packed = model.forward_packed(
+            noisy, clean, t_noisy, t_clean, ctx, nmask, cmask, att, n_ctx
+        )
         seq = lucid.cat([clean, noisy[:, :, n_ctx:]], dim=2)
         tt = lucid.cat([t_clean, t_noisy[:, n_ctx:]], dim=1)
         full = model.forward_full(seq, tt, ctx, nmask, att)

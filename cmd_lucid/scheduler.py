@@ -89,7 +89,12 @@ class FlowMatchSchedule:
 class FlowUniPC:
     """``FlowUniPCMultistepScheduler`` (solver_order=2, bh2, predict_x0, final sigma 0)."""
 
-    def __init__(self, num_inference_steps: int, shift: float = 5.0, num_train_timesteps: int = 1000) -> None:
+    def __init__(
+        self,
+        num_inference_steps: int,
+        shift: float = 5.0,
+        num_train_timesteps: int = 1000,
+    ) -> None:
         # Constructed with shift=1: sigma_max = 1 - 1/1000 (float32), sigma_min = 0.
         sigma_max = _f32(1.0 - 1.0 / num_train_timesteps)
         # np.linspace(sigma_max, 0, n + 1)[:-1]: i * step + start.
@@ -110,7 +115,9 @@ class FlowUniPC:
         alpha = 1.0 - sigma
         return _f32(math.log(_f32(alpha)) - math.log(sigma)) if sigma > 0 else math.inf
 
-    def _coeffs(self, sigma_t: float, sigma_s0: float, rk_sigmas: list[float], order: int):
+    def _coeffs(
+        self, sigma_t: float, sigma_s0: float, rk_sigmas: list[float], order: int
+    ):
         lam_t, lam_s0 = self._lambda(sigma_t), self._lambda(sigma_s0)
         h = lam_t - lam_s0
         rks = [(self._lambda(s) - lam_s0) / h for s in rk_sigmas] + [1.0]
@@ -123,7 +130,9 @@ class FlowUniPC:
         for i in range(1, order + 1):
             b.append(h_phi_k * factorial / b_h)
             factorial *= i + 1
-            h_phi_k = (h_phi_k / hh - 1 / factorial) if math.isfinite(hh) else -1 / factorial
+            h_phi_k = (
+                (h_phi_k / hh - 1 / factorial) if math.isfinite(hh) else -1 / factorial
+            )
         return h_phi_1, b_h, rks, b
 
     def step(self, flow: Tensor, sample: Tensor) -> Tensor:
@@ -146,7 +155,9 @@ class FlowUniPC:
         i = self.step_index
         m0 = self.model_outputs[-1]
         sigma_t, sigma_s0 = self.sigmas[i + 1], self.sigmas[i]
-        h_phi_1, b_h, rks, _ = self._coeffs(sigma_t, sigma_s0, [self.sigmas[i - k] for k in range(1, order)], order)
+        h_phi_1, b_h, rks, _ = self._coeffs(
+            sigma_t, sigma_s0, [self.sigmas[i - k] for k in range(1, order)], order
+        )
         alpha_t = 1.0 - sigma_t
         x_t = (sigma_t / sigma_s0) * x.float() - (alpha_t * h_phi_1) * m0
         if order == 2:
@@ -154,11 +165,15 @@ class FlowUniPC:
             x_t = x_t - (alpha_t * b_h * 0.5) * d1
         return x_t.to(x.dtype)
 
-    def _corrector(self, model_t: Tensor, last: Tensor, this: Tensor, order: int) -> Tensor:
+    def _corrector(
+        self, model_t: Tensor, last: Tensor, this: Tensor, order: int
+    ) -> Tensor:
         i = self.step_index
         m0 = self.model_outputs[-1]
         sigma_t, sigma_s0 = self.sigmas[i], self.sigmas[i - 1]
-        h_phi_1, b_h, rks, b = self._coeffs(sigma_t, sigma_s0, [self.sigmas[i - 1 - k] for k in range(1, order)], order)
+        h_phi_1, b_h, rks, b = self._coeffs(
+            sigma_t, sigma_s0, [self.sigmas[i - 1 - k] for k in range(1, order)], order
+        )
         alpha_t = 1.0 - sigma_t
         x_t = (sigma_t / sigma_s0) * last.float() - (alpha_t * h_phi_1) * m0
         if order == 1:

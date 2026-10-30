@@ -22,13 +22,20 @@ os.environ.setdefault("LUCID_COMPILE_MAX_CACHE", "256")
 import lucid  # noqa: E402
 import lucid.nn as nn  # noqa: E402
 
-from cmd_lucid.models.wan_vae import CausalConv3d, StreamState, WanVAE, _run  # noqa: E402
+from cmd_lucid.models.wan_vae import (
+    CausalConv3d,
+    StreamState,
+    WanVAE,
+    _run,
+)  # noqa: E402
 
 Tensor = lucid.Tensor
 
 
 def _history_slots(vae: WanVAE) -> list[CausalConv3d]:
-    return [m for m in vae.decoder.modules() if isinstance(m, CausalConv3d) and m.time_pad]
+    return [
+        m for m in vae.decoder.modules() if isinstance(m, CausalConv3d) and m.time_pad
+    ]
 
 
 class _DecodeFirst(nn.Module):
@@ -118,6 +125,9 @@ def export_encoder(vae_fp32: WanVAE, path: Path) -> "lucid.coreml.CoreMLModel":
 
     example = lucid.zeros(1, 3, 1, 480, 832)
     return cml.export(
-        _EncodeImage(vae_fp32.to("cpu").float()).eval(), example, str(path),
-        precision=cml.Precision.FLOAT16, compute_units=cml.ComputeUnits.CPU_AND_NE,
+        _EncodeImage(vae_fp32.to("cpu").float()).eval(),
+        example,
+        str(path),
+        precision=cml.Precision.FLOAT16,
+        compute_units=cml.ComputeUnits.CPU_AND_NE,
     )

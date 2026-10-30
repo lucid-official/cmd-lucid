@@ -109,7 +109,11 @@ def to_safetensors(src: Path, dest: Path, rename=lambda name: name) -> None:
         if not ref.is_contiguous():
             raise ValueError(f"{name}: non-contiguous tensors are not supported")
         nbytes = ref.numel * ref.storage.itemsize
-        header[rename(name)] = {"dtype": ref.storage.dtype, "shape": list(ref.shape), "data_offsets": [offset, offset + nbytes]}
+        header[rename(name)] = {
+            "dtype": ref.storage.dtype,
+            "shape": list(ref.shape),
+            "data_offsets": [offset, offset + nbytes],
+        }
         entries.append(ref)
         offset += nbytes
     encoded = json.dumps(header, separators=(",", ":")).encode()
@@ -123,7 +127,9 @@ def to_safetensors(src: Path, dest: Path, rename=lambda name: name) -> None:
         for ref in entries:
             blob = cache.get(ref.storage.key)
             if blob is None:
-                blob = cache[ref.storage.key] = archive.read(f"{root}/data/{ref.storage.key}")
+                blob = cache[ref.storage.key] = archive.read(
+                    f"{root}/data/{ref.storage.key}"
+                )
             start = ref.offset * ref.storage.itemsize
             fh.write(blob[start : start + ref.numel * ref.storage.itemsize])
     part.replace(dest)

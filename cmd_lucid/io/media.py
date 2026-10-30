@@ -24,7 +24,9 @@ _PRECISION_BITS = 32 - 8 - 2
 def _ffmpeg() -> str:
     exe = shutil.which("ffmpeg")
     if exe is None:
-        raise RuntimeError("ffmpeg is required for image/video I/O (brew install ffmpeg)")
+        raise RuntimeError(
+            "ffmpeg is required for image/video I/O (brew install ffmpeg)"
+        )
     return exe
 
 
@@ -45,8 +47,22 @@ def read_image(path: str | Path) -> Tensor:
     path = str(path)
     w, h = _probe_size(path)
     raw = subprocess.run(
-        [_ffmpeg(), "-v", "error", "-i", path, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
-        capture_output=True, check=True,
+        [
+            _ffmpeg(),
+            "-v",
+            "error",
+            "-i",
+            path,
+            "-frames:v",
+            "1",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "-",
+        ],
+        capture_output=True,
+        check=True,
     ).stdout
     if len(raw) != w * h * 3:
         raise ValueError(f"decoded {len(raw)} bytes for a {w}x{h} image")
@@ -82,7 +98,11 @@ def _pil_coefficients(in_size: int, out_size: int) -> Tensor:
         row = [0.0] * in_size
         for x, wgt in enumerate(weights):
             k = wgt / total if total != 0.0 else wgt
-            fixed = math.trunc(-0.5 + k * (1 << _PRECISION_BITS)) if k < 0 else math.trunc(0.5 + k * (1 << _PRECISION_BITS))
+            fixed = (
+                math.trunc(-0.5 + k * (1 << _PRECISION_BITS))
+                if k < 0
+                else math.trunc(0.5 + k * (1 << _PRECISION_BITS))
+            )
             row[x + xmin] = float(fixed)
         rows.append(row)
     return lucid.tensor(rows, dtype=lucid.float64)
@@ -99,9 +119,13 @@ def pil_resize(image: Tensor, height: int, width: int) -> Tensor:
     h, w, c = image.shape
     x = image.to(lucid.float64)
     if w != width:  # horizontal pass first, as Pillow does
-        x = _fixed_point_pass(x.permute(0, 2, 1), _pil_coefficients(w, width)).permute(0, 2, 1)
+        x = _fixed_point_pass(x.permute(0, 2, 1), _pil_coefficients(w, width)).permute(
+            0, 2, 1
+        )
     if h != height:
-        x = _fixed_point_pass(x.permute(1, 2, 0), _pil_coefficients(h, height)).permute(2, 0, 1)
+        x = _fixed_point_pass(x.permute(1, 2, 0), _pil_coefficients(h, height)).permute(
+            2, 0, 1
+        )
     return x.to(lucid.int16)
 
 
@@ -126,13 +150,37 @@ def to_uint8_frames(video: Tensor) -> list[bytes]:
 class VideoWriter:
     """Append RGB24 frames to an H.264 MP4 through an ffmpeg pipe."""
 
-    def __init__(self, path: str | Path, width: int, height: int, fps: int = 16, crf: int = 17) -> None:
+    def __init__(
+        self, path: str | Path, width: int, height: int, fps: int = 16, crf: int = 17
+    ) -> None:
         self.path = str(path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self.proc = subprocess.Popen(
-            [_ffmpeg(), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{width}x{height}",
-             "-r", str(fps), "-i", "-", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", str(crf),
-             "-movflags", "+faststart", self.path],
+            [
+                _ffmpeg(),
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "rgb24",
+                "-s",
+                f"{width}x{height}",
+                "-r",
+                str(fps),
+                "-i",
+                "-",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-crf",
+                str(crf),
+                "-movflags",
+                "+faststart",
+                self.path,
+            ],
             stdin=subprocess.PIPE,
         )
 
@@ -149,7 +197,27 @@ class VideoWriter:
 def encode_jpeg(frame: bytes, width: int, height: int, quality: int = 4) -> bytes:
     """One RGB24 frame as JPEG bytes (for streaming previews)."""
     return subprocess.run(
-        [_ffmpeg(), "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{width}x{height}", "-i", "-",
-         "-frames:v", "1", "-q:v", str(quality), "-f", "mjpeg", "-"],
-        input=frame, capture_output=True, check=True,
+        [
+            _ffmpeg(),
+            "-v",
+            "error",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "-s",
+            f"{width}x{height}",
+            "-i",
+            "-",
+            "-frames:v",
+            "1",
+            "-q:v",
+            str(quality),
+            "-f",
+            "mjpeg",
+            "-",
+        ],
+        input=frame,
+        capture_output=True,
+        check=True,
     ).stdout

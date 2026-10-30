@@ -27,17 +27,30 @@ from pathlib import Path
 from lucid.utils.tokenizer import BPETokenizerFast, SpecialTokens
 from lucid.utils.tokenizer import normalizers, pre_tokenizers
 
-SYSTEM_PROMPT = "You are a helpful assistant who will provide prompts to an image generator."
+SYSTEM_PROMPT = (
+    "You are a helpful assistant who will provide prompts to an image generator."
+)
 MAX_LENGTH = 512
 
 # Unicode White_Space (what Oniguruma's \s matches for UTF-8 text).
-_WHITE_SPACE = [(0x09, 0x0D), (0x20, 0x20), (0x85, 0x85), (0xA0, 0xA0), (0x1680, 0x1680),
-                (0x2000, 0x200A), (0x2028, 0x2029), (0x202F, 0x202F), (0x205F, 0x205F), (0x3000, 0x3000)]
+_WHITE_SPACE = [
+    (0x09, 0x0D),
+    (0x20, 0x20),
+    (0x85, 0x85),
+    (0xA0, 0xA0),
+    (0x1680, 0x1680),
+    (0x2000, 0x200A),
+    (0x2028, 0x2029),
+    (0x202F, 0x202F),
+    (0x205F, 0x205F),
+    (0x3000, 0x3000),
+]
 
 
 def _class(ranges: list[tuple[int, int]]) -> str:
     def esc(c: int) -> str:
         return f"\\U{c:08x}"
+
     return "".join(esc(a) if a == b else f"{esc(a)}-{esc(b)}" for a, b in ranges)
 
 
@@ -74,7 +87,11 @@ def qwen2_split_pattern() -> re.Pattern[str]:
 
 def _bytes_to_unicode() -> dict[int, str]:
     """GPT-2's printable byte alphabet."""
-    bs = list(range(ord("!"), ord("~") + 1)) + list(range(ord("¡"), ord("¬") + 1)) + list(range(ord("®"), ord("ÿ") + 1))
+    bs = (
+        list(range(ord("!"), ord("~") + 1))
+        + list(range(ord("¡"), ord("¬") + 1))
+        + list(range(ord("®"), ord("ÿ") + 1))
+    )
     cs = bs[:]
     n = 0
     for b in range(256):
@@ -102,7 +119,10 @@ class Qwen2PreTokenizer(pre_tokenizers.PreTokenizer):
             last = m.end()
         if last < len(text):
             chunks.append((text[last:], (last, len(text))))
-        return [("".join(self.byte_map[b] for b in c.encode("utf-8")), span) for c, span in chunks]
+        return [
+            ("".join(self.byte_map[b] for b in c.encode("utf-8")), span)
+            for c, span in chunks
+        ]
 
 
 class CosmosTokenizer:

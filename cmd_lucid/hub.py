@@ -32,7 +32,17 @@ import lucid
 
 HF_ENDPOINT = os.environ.get("HF_ENDPOINT", "https://huggingface.co")
 _CHUNK = 32 << 20
-_ST_ITEMSIZE = {"F64": 8, "F32": 4, "F16": 2, "BF16": 2, "I64": 8, "I32": 4, "I16": 2, "I8": 1, "BOOL": 1}
+_ST_ITEMSIZE = {
+    "F64": 8,
+    "F32": 4,
+    "F16": 2,
+    "BF16": 2,
+    "I64": 8,
+    "I32": 4,
+    "I16": 2,
+    "I8": 1,
+    "BOOL": 1,
+}
 _ST_DTYPE = {"F32": lucid.float32, "F16": lucid.float16, "BF16": lucid.bfloat16}
 
 
@@ -40,7 +50,9 @@ def hf_url(repo: str, filename: str, revision: str = "main") -> str:
     return f"{HF_ENDPOINT}/{repo}/resolve/{revision}/{filename}"
 
 
-def _request(url: str, start: int | None = None, end: int | None = None, retries: int = 8):
+def _request(
+    url: str, start: int | None = None, end: int | None = None, retries: int = 8
+):
     headers = {"User-Agent": "cmd-lucid"}
     token = os.environ.get("HF_TOKEN")
     if token:
@@ -49,7 +61,9 @@ def _request(url: str, start: int | None = None, end: int | None = None, retries
         headers["Range"] = f"bytes={start}-{'' if end is None else end - 1}"
     for attempt in range(retries):
         try:
-            return urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60)
+            return urllib.request.urlopen(
+                urllib.request.Request(url, headers=headers), timeout=60
+            )
         except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
             if attempt == retries - 1:
                 raise
@@ -114,7 +128,11 @@ class RemoteSafetensors:
 def _write_header(fh, entries: list[tuple[str, str, tuple[int, ...], int]]) -> int:
     header, offset = {}, 0
     for name, dtype, shape, nbytes in entries:
-        header[name] = {"dtype": dtype, "shape": list(shape), "data_offsets": [offset, offset + nbytes]}
+        header[name] = {
+            "dtype": dtype,
+            "shape": list(shape),
+            "data_offsets": [offset, offset + nbytes],
+        }
         offset += nbytes
     encoded = json.dumps(header, separators=(",", ":")).encode()
     encoded += b" " * (-len(encoded) % 8)
@@ -137,7 +155,9 @@ def fetch_passthrough(
     total = sum(t.nbytes for t in picked)
     mode = "r+b" if part.exists() else "wb"
     with open(part, mode) as fh:
-        data_start = _write_header(fh, [(t.name, t.dtype, t.shape, t.nbytes) for t in picked])
+        data_start = _write_header(
+            fh, [(t.name, t.dtype, t.shape, t.nbytes) for t in picked]
+        )
         done = max(0, os.path.getsize(part) - data_start)
         fh.seek(data_start + done)
         # Coalesce runs of tensors that sit back to back in the remote file.
@@ -160,7 +180,9 @@ def fetch_passthrough(
                 block = read_range(remote.url, pos, min(stop, pos + _CHUNK))
                 fh.write(block)
                 pos += len(block)
-                _progress(remote.name, data_start, fh.tell() - data_start, total, t0, done)
+                _progress(
+                    remote.name, data_start, fh.tell() - data_start, total, t0, done
+                )
             written += size
     os.replace(part, dest)
     print(f"\n  wrote {dest} ({total / 1e9:.2f} GB)", flush=True)
@@ -234,7 +256,11 @@ def fetch_file(repo: str, filename: str, dest: Path, revision: str = "main") -> 
         print(f"\n  wrote {dest}", flush=True)
 
 
-def _progress(name: str, _base: int, done: int, total: int, t0: float, resumed: int) -> None:
+def _progress(
+    name: str, _base: int, done: int, total: int, t0: float, resumed: int
+) -> None:
     rate = (done - resumed) / max(time.time() - t0, 1e-6) / 1e6
-    sys.stdout.write(f"\r  {name}: {done / 1e9:6.2f}/{total / 1e9:.2f} GB  {rate:5.1f} MB/s")
+    sys.stdout.write(
+        f"\r  {name}: {done / 1e9:6.2f}/{total / 1e9:.2f} GB  {rate:5.1f} MB/s"
+    )
     sys.stdout.flush()

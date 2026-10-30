@@ -22,7 +22,13 @@ from cmd_lucid.text.tokenizer import CosmosTokenizer, SYSTEM_PROMPT
 class PromptEncoder:
     """Turns prompts into ``prompt_embeds`` ``(1, 512, 100352)`` the way ``CosmosTextEncoder`` does."""
 
-    def __init__(self, directory: Path | None = None, device: str = "metal", dtype=lucid.bfloat16, keep_loaded: bool = False) -> None:
+    def __init__(
+        self,
+        directory: Path | None = None,
+        device: str = "metal",
+        dtype=lucid.bfloat16,
+        keep_loaded: bool = False,
+    ) -> None:
         self.directory = Path(directory or catalog.text_encoder_dir())
         self.device = device
         self.dtype = dtype
@@ -32,7 +38,9 @@ class PromptEncoder:
         self._model: CosmosReasonEncoder | None = None
 
     def _key(self, prompt: str) -> Path:
-        digest = hashlib.sha256(f"{SYSTEM_PROMPT}\x00{prompt}\x00{self.dtype}".encode()).hexdigest()[:24]
+        digest = hashlib.sha256(
+            f"{SYSTEM_PROMPT}\x00{prompt}\x00{self.dtype}".encode()
+        ).hexdigest()[:24]
         return self.cache_dir / f"{digest}.safetensors"
 
     def cached(self, prompt: str) -> bool:
@@ -41,10 +49,16 @@ class PromptEncoder:
     def __call__(self, prompt: str) -> lucid.Tensor:
         path = self._key(prompt)
         if path.exists():
-            return lucid.load_safetensors(str(path), device=self.device)["prompt_embeds"]
+            return lucid.load_safetensors(str(path), device=self.device)[
+                "prompt_embeds"
+            ]
         if self._model is None:
-            self._model = CosmosReasonEncoder.load(self.directory, self.device, self.dtype)
-        ids = lucid.tensor([self.tokenizer(prompt)], dtype=lucid.int64, device=self.device)
+            self._model = CosmosReasonEncoder.load(
+                self.directory, self.device, self.dtype
+            )
+        ids = lucid.tensor(
+            [self.tokenizer(prompt)], dtype=lucid.int64, device=self.device
+        )
         with lucid.no_grad():
             embeds = self._model(ids)
             lucid.eval(embeds)

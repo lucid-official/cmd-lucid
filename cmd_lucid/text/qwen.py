@@ -45,11 +45,23 @@ class QwenConfig:
 class Attention(nn.Module):
     def __init__(self, cfg: QwenConfig) -> None:
         super().__init__()
-        self.heads, self.kv_heads, self.head_dim = cfg.num_heads, cfg.num_kv_heads, cfg.head_dim
-        self.q_proj = nn.Linear(cfg.hidden_size, cfg.num_heads * cfg.head_dim, bias=True)
-        self.k_proj = nn.Linear(cfg.hidden_size, cfg.num_kv_heads * cfg.head_dim, bias=True)
-        self.v_proj = nn.Linear(cfg.hidden_size, cfg.num_kv_heads * cfg.head_dim, bias=True)
-        self.o_proj = nn.Linear(cfg.num_heads * cfg.head_dim, cfg.hidden_size, bias=False)
+        self.heads, self.kv_heads, self.head_dim = (
+            cfg.num_heads,
+            cfg.num_kv_heads,
+            cfg.head_dim,
+        )
+        self.q_proj = nn.Linear(
+            cfg.hidden_size, cfg.num_heads * cfg.head_dim, bias=True
+        )
+        self.k_proj = nn.Linear(
+            cfg.hidden_size, cfg.num_kv_heads * cfg.head_dim, bias=True
+        )
+        self.v_proj = nn.Linear(
+            cfg.hidden_size, cfg.num_kv_heads * cfg.head_dim, bias=True
+        )
+        self.o_proj = nn.Linear(
+            cfg.num_heads * cfg.head_dim, cfg.hidden_size, bias=False
+        )
 
     def forward(self, x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
         b, n, _ = x.shape
@@ -77,7 +89,9 @@ class DecoderLayer(nn.Module):
         super().__init__()
         self.input_layernorm = nn.RMSNorm(cfg.hidden_size, eps=cfg.rms_norm_eps)
         self.self_attn = Attention(cfg)
-        self.post_attention_layernorm = nn.RMSNorm(cfg.hidden_size, eps=cfg.rms_norm_eps)
+        self.post_attention_layernorm = nn.RMSNorm(
+            cfg.hidden_size, eps=cfg.rms_norm_eps
+        )
         self.mlp = MLP(cfg)
 
     def forward(self, x: Tensor, cos: Tensor, sin: Tensor) -> Tensor:
@@ -111,8 +125,13 @@ class CosmosReasonEncoder(nn.Module):
 
     def _rope(self, length: int, device: str) -> tuple[Tensor, Tensor]:
         """cos/sin computed in fp32 and cast to the model dtype, as HF does."""
-        half = lucid.arange(0, self.cfg.head_dim, 2, dtype=lucid.float32, device=device) / self.cfg.head_dim
-        base = lucid.full(tuple(half.shape), self.cfg.rope_theta, dtype=lucid.float32, device=device)
+        half = (
+            lucid.arange(0, self.cfg.head_dim, 2, dtype=lucid.float32, device=device)
+            / self.cfg.head_dim
+        )
+        base = lucid.full(
+            tuple(half.shape), self.cfg.rope_theta, dtype=lucid.float32, device=device
+        )
         inv_freq = 1.0 / lucid.pow(base, half)
         pos = lucid.arange(length, dtype=lucid.float32, device=device)
         freqs = pos.reshape(-1, 1) * inv_freq.reshape(1, -1)
@@ -134,7 +153,9 @@ class CosmosReasonEncoder(nn.Module):
         return lucid.cat([_mean_normalize(s) for s in self.hidden_states(ids)], dim=-1)
 
     @classmethod
-    def load(cls, directory: str | Path, device: str = "metal", dtype=lucid.bfloat16) -> "CosmosReasonEncoder":
+    def load(
+        cls, directory: str | Path, device: str = "metal", dtype=lucid.bfloat16
+    ) -> "CosmosReasonEncoder":
         """Build on ``device`` and fill it shard by shard (no random init is evaluated)."""
         directory = Path(directory)
         prev_device, prev_dtype = lucid.get_default_device(), lucid.get_default_dtype()
@@ -149,7 +170,11 @@ class CosmosReasonEncoder(nn.Module):
         seen: set[str] = set()
         for shard in sorted(directory.glob("model-*.safetensors")):
             weights = lucid.load_safetensors(str(shard), device=device)
-            weights = {k: (v if v.dtype == dtype else v.to(dtype)) for k, v in weights.items() if k in expected}
+            weights = {
+                k: (v if v.dtype == dtype else v.to(dtype))
+                for k, v in weights.items()
+                if k in expected
+            }
             model.load_state_dict(weights, strict=False, assign=True)
             seen |= set(weights)
             del weights

@@ -27,16 +27,28 @@ def main() -> None:
     cfg._attn_implementation = "sdpa"
     model = Qwen2_5_VLTextModel(cfg).float().eval()
     shard = load_file(str(DIR / "model-00001-of-00004.safetensors"))
-    keep = {"model.embed_tokens.weight"} | {k for k in shard if any(k.startswith(f"model.layers.{i}.") for i in range(LAYERS))}
+    keep = {"model.embed_tokens.weight"} | {
+        k
+        for k in shard
+        if any(k.startswith(f"model.layers.{i}.") for i in range(LAYERS))
+    }
     sd = {k.removeprefix("model."): shard[k].float() for k in keep}
     sd["norm.weight"] = torch.ones(cfg.hidden_size)
     model.load_state_dict(sd, strict=True)
     ids = json.loads((ROOT / "tests/fixtures/tokenizer_hf.json").read_text())[0]["ids"]
     input_ids = torch.tensor([ids])
     with torch.no_grad():
-        out = model(input_ids=input_ids, output_hidden_states=True, use_cache=False, return_dict=True)
+        out = model(
+            input_ids=input_ids,
+            output_hidden_states=True,
+            use_cache=False,
+            return_dict=True,
+        )
         states = out.hidden_states[1:]
-        norm = [(s - s.mean(-1, keepdim=True)) / (s.std(-1, keepdim=True) + 1e-8) for s in states]
+        norm = [
+            (s - s.mean(-1, keepdim=True)) / (s.std(-1, keepdim=True) + 1e-8)
+            for s in states
+        ]
     tensors = {f"state.{i}": s[0].contiguous() for i, s in enumerate(states)}
     tensors["features"] = torch.cat(norm, dim=-1)[0].contiguous()
     tensors["ids"] = input_ids[0].to(torch.int64)

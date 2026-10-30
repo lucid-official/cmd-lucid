@@ -12,7 +12,9 @@ DEVICES = ["cpu", "metal"]
 def load_fixture(name: str) -> dict[str, lucid.Tensor]:
     path = FIXTURES / name
     if not path.exists():
-        pytest.skip(f"fixture {name} missing; run the matching tests/ref/ script in .venv-ref")
+        pytest.skip(
+            f"fixture {name} missing; run the matching tests/ref/ script in .venv-ref"
+        )
     return lucid.load_safetensors(str(path))
 
 
