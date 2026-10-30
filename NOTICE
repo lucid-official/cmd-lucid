@@ -1,0 +1,33 @@
+cmd-lucid
+A re-implementation of Context-Matched Distillation (CMD) on Lucid.
+
+This repository ports, to the Lucid framework, code from the projects below.
+The ported code is a derivative of them and is distributed under the NVIDIA
+OneWay Noncommercial License (LICENSE), which restricts use to
+non-commercial research and educational purposes. The released CMD weights
+(huggingface.co/nvidia/cmd) are under the same license.
+
+NVIDIA CMD (Context-Matched Distillation)
+  Source: https://github.com/nv-tlabs/cmd
+  Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+  License: NVIDIA OneWay Noncommercial License
+
+NVIDIA Cosmos-Predict2.5
+  Source: https://github.com/nvidia-cosmos/cosmos-predict2.5
+  Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+  License: Apache License 2.0
+
+Self-Forcing
+  Source: https://github.com/guandeh17/Self-Forcing
+  Copyright (c) 2025 The Self-Forcing Authors. All rights reserved.
+  License: Apache License 2.0
+
+Wan2.1 (VAE)
+  Source: https://github.com/Wan-Video/Wan2.1
+  Copyright 2024-2025 The Alibaba Wan Team Authors. All rights reserved.
+  License: Apache License 2.0
+
+Qwen2.5-VL (text model of Cosmos-Reason1-7B)
+  Source: https://github.com/huggingface/transformers
+  Copyright The Qwen Team and The HuggingFace Inc. team.
+  License: Apache License 2.0

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cmd-lucid"
+version = "0.1.0"
+description = "Context-Matched Distillation (arXiv 2608.13391) re-implemented on Lucid for Apple Silicon"
+readme = "README.md"
+requires-python = ">=3.14"
+license = { text = "NVIDIA OneWay Noncommercial License" }
+authors = [{ name = "Chan Lee" }]
+keywords = ["video-generation", "autoregressive", "distillation", "world-model", "apple-silicon", "lucid"]
+# The implementation imports nothing but Lucid and the standard library
+# (tests/test_public_api.py enforces it); ffmpeg is used for media I/O.
+dependencies = ["lucid-dl==3.16.2"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.urls]
+Repository = "https://github.com/lucid-official/cmd-lucid"
+Paper = "https://arxiv.org/abs/2608.13391"
+"Upstream (CMD)" = "https://github.com/nv-tlabs/cmd"
+Weights = "https://huggingface.co/nvidia/cmd"
+"Runtime (Lucid)" = "https://github.com/lucid-official/lucid"
+
+[project.scripts]
+cmd-download = "cmd_lucid.download:main"
+cmd-generate = "cmd_lucid.generate:main"
+
+[tool.setuptools.packages.find]
+include = ["cmd_lucid*"]
+
+[tool.setuptools.package-data]
+cmd_lucid = ["server/static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
