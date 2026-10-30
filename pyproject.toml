@@ -11,9 +11,9 @@ requires-python = ">=3.14"
 license = { text = "NVIDIA OneWay Noncommercial License" }
 authors = [{ name = "Chan Lee" }]
 keywords = ["video-generation", "autoregressive", "distillation", "world-model", "apple-silicon", "lucid"]
-# The implementation imports nothing but Lucid and the standard library
+# The models and pipeline import nothing but Lucid and the standard library
 # (tests/test_public_api.py enforces it); ffmpeg is used for media I/O.
-dependencies = ["lucid-dl==3.16.2"]
+dependencies = ["lucid-dl==3.16.2", "tqdm"]  # tqdm: CLI progress bar only
 
 [project.optional-dependencies]
 test = ["pytest"]

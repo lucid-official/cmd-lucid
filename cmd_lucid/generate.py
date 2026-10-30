@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 import lucid
+from tqdm import tqdm
 
 from cmd_lucid import catalog
 from cmd_lucid.camera import build_camera_conditioning, load_trajectory
@@ -70,13 +71,18 @@ def main() -> None:
     decode = pipe.decoder()
     writer = VideoWriter(out, 832, 480)
     t0, written = time.time(), 0
+    bar = tqdm(total=4 * (frames - 1) + 1, unit="frame", desc=f"{args.model} -> {out.name}", dynamic_ncols=True)
     for block in pipe.stream(latent, embeds, frames, NoiseSource(args.seed), camera, negative):
         pixels = decode(block.latents)
         writer.write(to_uint8_frames(pixels))
         written += pixels.shape[1]
-        print(f"latent {block.start:3d}+{block.latents.shape[2]}  {block.seconds:5.1f}s  ->  {written} frames", flush=True)
+        bar.update(pixels.shape[1])
+        bar.set_postfix_str(
+            f"latent {block.start}/{frames - 1}, {block.seconds:.1f}s/block, video {written / 16:.1f}s"
+        )
+    bar.close()
     writer.close()
-    print(f"wrote {out}: {written} frames in {time.time() - t0:.1f}s", flush=True)
+    print(f"wrote {out}: {written} frames ({written / 16:.1f}s of video) in {time.time() - t0:.0f}s", flush=True)
 
 
 if __name__ == "__main__":
