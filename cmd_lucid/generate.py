@@ -22,7 +22,7 @@ import lucid
 from tqdm import tqdm
 
 from cmd_lucid import catalog
-from cmd_lucid.camera import build_camera_conditioning, load_trajectory
+from cmd_lucid.camera import CameraAction, CameraController, build_camera_conditioning, load_trajectory
 from cmd_lucid.io.media import VideoWriter, image_to_model, read_image, to_uint8_frames
 from cmd_lucid.pipeline import NEGATIVE_PROMPT, CMDPipeline, NoiseSource
 from cmd_lucid.text.encoder import PromptEncoder
@@ -43,9 +43,16 @@ def main() -> None:
         help="trajectory .npz (target_w2c, target_intrinsics) for camera models",
     )
     p.add_argument(
+        "--keys",
+        help="scripted camera keys instead of --camera: 'KEYS*N,...' holds KEYS for N latent "
+        "frames (0.25 s each), e.g. 'wl*16,w*224' (w/a/s/d move, q/e rise/sink, i/j/k/l look)",
+    )
+    p.add_argument("--speed", type=float, default=0.16, help="--keys: move per latent frame")
+    p.add_argument("--turn", type=float, default=3.0, help="--keys: degrees per latent frame")
+    p.add_argument(
         "--frames",
         type=int,
-        help="latent frames incl. the image (default: the model's)",
+        help="latent frames incl. the image (default: the model's, or the --keys script's)",
     )
     p.add_argument("--seed", type=int, default=22)
     p.add_argument(
@@ -63,7 +70,14 @@ def main() -> None:
         else Path(args.prompt_file).read_text(encoding="utf-8").strip()
     )
     variant = catalog.VARIANTS[args.model]
-    frames = args.frames or variant.latent_frames
+    controller = None
+    if args.keys:
+        controller = CameraController()
+        for segment in args.keys.split(","):
+            keys, _, count = segment.strip().partition("*")
+            for _ in range(int(count or 1)):
+                controller.advance(CameraAction.from_keys(keys, args.speed, args.turn))
+    frames = args.frames or (len(controller.poses) if controller else variant.latent_frames)
     out = Path(args.out or f"outputs/{args.model}-{args.seed}.mp4")
 
     t0 = time.time()
@@ -79,9 +93,20 @@ def main() -> None:
     print(f"loaded {args.model} in {time.time() - t0:.1f}s", flush=True)
 
     camera = None
-    if variant.camera:
+    if variant.camera and controller is not None:
+        if len(controller.poses) < frames:
+            p.error(f"--keys covers {len(controller.poses)} latent frames, {frames} requested")
+        last: dict[int, lucid.Tensor] = {}
+
+        def camera(start: int, n: int) -> lucid.Tensor:
+            if start not in last:
+                last.clear()
+                last[start] = controller.tokens(start, n, variant.block).to(pipe.device).to(pipe.dtype)
+            return last[start]
+
+    elif variant.camera:
         if not args.camera:
-            p.error(f"{args.model} needs --camera")
+            p.error(f"{args.model} needs --camera or --keys")
         c2w, k = load_trajectory(args.camera, frames)
         tokens = build_camera_conditioning(
             c2w, k, frames_per_block=variant.block, expected_latent_frames=frames
